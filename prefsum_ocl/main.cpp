@@ -70,16 +70,18 @@ int main() {
         std::cerr << "Can't get device name";
     }
 
-    cl_context ctx = clCreateContext(nullptr, devices.size(), devices.data(), nullptr, nullptr, &res);
+    cl_util::cl_raii<cl_context, clReleaseContext> ctx(
+            clCreateContext(nullptr, devices.size(), devices.data(), nullptr, nullptr, &res));
     ERROR_CHECK("create context");
-    if (ctx == nullptr) {
+    if (ctx.obj == nullptr) {
         std::cerr << "Can't create context is null" << std::endl;
         return 1;
     }
 
-    cl_command_queue cmd_q = clCreateCommandQueue(ctx, devices[DEV], CL_QUEUE_PROFILING_ENABLE, &res);
+    cl_util::cl_raii<cl_command_queue, clReleaseCommandQueue> cmd_q(
+            clCreateCommandQueue(ctx.obj, devices[DEV], CL_QUEUE_PROFILING_ENABLE, &res));
     ERROR_CHECK("create command queue")
-    if (cmd_q == nullptr) {
+    if (cmd_q.obj == nullptr) {
         std::cerr << "Cmd queue is null" << std::endl;
         return 1;
     }
@@ -90,47 +92,49 @@ int main() {
     size_t code_sz = code.size();
     const char* code_c = code.c_str();
 
-    cl_program program = clCreateProgramWithSource(ctx, sizeof(char), &code_c, &code_sz, &res);
+    cl_util::cl_raii<cl_program, clReleaseProgram> program(
+            clCreateProgramWithSource(ctx.obj, sizeof(char), &code_c, &code_sz, &res));
     ERROR_CHECK("create program")
     kfile.close();
 
     std::string ops = cl_util::get_options_prefsum();
-    res = clBuildProgram(program, devices.size(), devices.data(), ops.c_str(), nullptr, nullptr);
+    res = clBuildProgram(program.obj, devices.size(), devices.data(), ops.c_str(), nullptr, nullptr);
 
     if (res != CL_SUCCESS) {
         std::cerr << "Can't build program. Error code: " << res << std::endl;
         size_t log_size = 0;
-        clGetProgramBuildInfo(program, devices[DEV], CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
+        clGetProgramBuildInfo(program.obj, devices[DEV], CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
         std::string log;
         log.resize(log_size);
-        clGetProgramBuildInfo(program, devices[DEV], CL_PROGRAM_BUILD_LOG, log_size, const_cast<char*>(log.data()), nullptr);
+        clGetProgramBuildInfo(program.obj, devices[DEV], CL_PROGRAM_BUILD_LOG, log_size, const_cast<char*>(log.data()), nullptr);
         std::cerr << log;
     }
 
     std::cout << "Program is built" << std::endl;
 
     cl_int res1 = 0;
-    //std::vector<cl_kernel> kernels = {
-    cl_kernel kernel = clCreateKernel(program, "prefix_sum", &res); //,
-            //clCreateKernel(program, "calc_sum", &res)
-    //};
+    cl_util::cl_raii<cl_kernel, clReleaseKernel> kernel(
+            clCreateKernel(program.obj, "prefix_sum", &res));
+
     ERROR_CHECK("create kernel tiles_sum")
     res = res1;
     ERROR_CHECK("create kernel calc_sum")
 
     auto casted_size = static_cast<cl_uint>(ARRAY_SIZE * sizeof(float));
 
-    cl_mem array_buf = clCreateBuffer(ctx, CL_MEM_READ_ONLY, casted_size, nullptr, &res);
+    cl_util::cl_raii<cl_mem, clReleaseMemObject> array_buf(
+            clCreateBuffer(ctx.obj, CL_MEM_READ_ONLY, casted_size, nullptr, &res));
     ERROR_CHECK("create array buffer")
-    cl_mem sums_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, casted_size, nullptr, &res);
+    cl_util::cl_raii<cl_mem, clReleaseMemObject> sums_buf(
+            clCreateBuffer(ctx.obj, CL_MEM_READ_WRITE, casted_size, nullptr, &res));
     ERROR_CHECK("create sum array buffer")
 
-    res = clEnqueueWriteBuffer(cmd_q, array_buf, CL_TRUE, 0, casted_size, array.data(), 0, nullptr, nullptr);
+    res = clEnqueueWriteBuffer(cmd_q.obj, array_buf.obj, CL_TRUE, 0, casted_size, array.data(), 0, nullptr, nullptr);
     ERROR_CHECK("enqueue write buffer")
 
-    res = clSetKernelArg(kernel, 0, sizeof(cl_mem), &array_buf);
-    res |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &sums_buf);
-    res |= clSetKernelArg(kernel, 2, sizeof(cl_uint), &casted_size);
+    res = clSetKernelArg(kernel.obj, 0, sizeof(cl_mem), &array_buf);
+    res |= clSetKernelArg(kernel.obj, 1, sizeof(cl_mem), &sums_buf);
+    res |= clSetKernelArg(kernel.obj, 2, sizeof(cl_uint), &casted_size);
     ERROR_CHECK("set 1st kernel args")
 
     size_t global_work[1] = {cl_util::PREFSUM_LOC_WORK};
@@ -138,10 +142,10 @@ int main() {
 
     cl_ulong time = 0;
     cl_event event = nullptr;
-    res = clEnqueueNDRangeKernel(cmd_q, kernel, 1, nullptr, global_work, local_work, 0, nullptr, &event);
+    res = clEnqueueNDRangeKernel(cmd_q.obj, kernel.obj, 1, nullptr, global_work, local_work, 0, nullptr, &event);
 
     clWaitForEvents(1, &event);
-    clFinish(cmd_q);
+    clFinish(cmd_q.obj);
 
     cl_ulong time_start = 0;
     cl_ulong time_end = 0;
@@ -150,7 +154,7 @@ int main() {
     time += time_end - time_start;
     std::cout << "Time spent in opencl computation: " << std::fixed << std::setprecision(6) << time / 1e6 << " ms" << std::endl;
 
-    res = clEnqueueReadBuffer(cmd_q, sums_buf, CL_TRUE, 0, casted_size, result.data(), 0, nullptr, nullptr);
+    res = clEnqueueReadBuffer(cmd_q.obj, sums_buf.obj, CL_TRUE, 0, casted_size, result.data(), 0, nullptr, nullptr);
 
     if (!check(array, result)) {
         std::cerr << "Checking result failed!" << std::endl;

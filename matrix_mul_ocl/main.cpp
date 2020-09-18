@@ -19,6 +19,8 @@ static constexpr size_t WORK_DIM = 2;
 
 static constexpr const char *KERNEL_FILE_NAME = "mat_mp.cl";
 
+using cl_buffer = cl_util::cl_raii<cl_mem, clReleaseMemObject>;
+
 int main() {
     // generating matrices
     cl_util::matrix first(A, B);
@@ -73,17 +75,19 @@ int main() {
     }
 
     // context now
-    cl_context ctx = clCreateContext(nullptr, devices.size(), devices.data(), nullptr, nullptr, &res);
+    cl_util::cl_raii<cl_context, clReleaseContext> ctx(
+            clCreateContext(nullptr, devices.size(), devices.data(), nullptr, nullptr, &res));
     ERROR_CHECK("create context");
-    if (ctx == nullptr) {
+    if (ctx.obj == nullptr) {
         std::cerr << "Can't create context is null" << std::endl;
         return 1;
     }
 
 
-    cl_command_queue cmd_q = clCreateCommandQueue(ctx, devices[DEV], CL_QUEUE_PROFILING_ENABLE, &res);
+    cl_util::cl_raii<cl_command_queue, clReleaseCommandQueue> cmd_q(
+            clCreateCommandQueue(ctx.obj, devices[DEV], CL_QUEUE_PROFILING_ENABLE, &res));
     ERROR_CHECK("create command queue")
-    if (cmd_q == nullptr) {
+    if (cmd_q.obj == nullptr) {
         std::cerr << "Cmd queue is null" << std::endl;
         return 1;
     }
@@ -95,64 +99,66 @@ int main() {
     size_t code_sz = code.size();
     const char* code_c = code.c_str();
 
-    cl_program program = clCreateProgramWithSource(ctx, sizeof(char), &code_c, &code_sz, &res);
+    cl_util::cl_raii<cl_program, clReleaseProgram> program(
+            clCreateProgramWithSource(ctx.obj, sizeof(char), &code_c, &code_sz, &res));
     ERROR_CHECK("create program")
     kfile.close();
 
     std::string ops = cl_util::get_options_matrix();
-    res = clBuildProgram(program, devices.size(), devices.data(), ops.c_str(), nullptr, nullptr);
+    res = clBuildProgram(program.obj, devices.size(), devices.data(), ops.c_str(), nullptr, nullptr);
 
     if (res != CL_SUCCESS) {
         std::cerr << "Can't build program. Error code: " << res << std::endl;
         size_t log_size = 0;
-        clGetProgramBuildInfo(program, devices[DEV], CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
+        clGetProgramBuildInfo(program.obj, devices[DEV], CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
         std::string log;
         log.resize(log_size);
-        clGetProgramBuildInfo(program, devices[DEV], CL_PROGRAM_BUILD_LOG, log_size, const_cast<char*>(log.data()), nullptr);
+        clGetProgramBuildInfo(program.obj, devices[DEV], CL_PROGRAM_BUILD_LOG, log_size, const_cast<char*>(log.data()), nullptr);
         std::cerr << log;
     }
 
     std::cout << "Program is built" << std::endl;
 
-    cl_kernel kernel = clCreateKernel(program, "mat_mp", &res);
+    cl_util::cl_raii<cl_kernel, clReleaseKernel> kernel(
+            clCreateKernel(program.obj, "mat_mp", &res));
     ERROR_CHECK("create kernel")
 
     // std::cout << first.byte_size() << first.data;
-    cl_mem first_buf = clCreateBuffer(ctx, CL_MEM_READ_ONLY, first.byte_size(), nullptr, &res);
+    cl_buffer first_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_ONLY, first.byte_size(), nullptr, &res));
     ERROR_CHECK("create first cl mem")
-    cl_mem second_buf = clCreateBuffer(ctx, CL_MEM_READ_ONLY, second.byte_size(), nullptr, &res);
+    cl_buffer second_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_ONLY, second.byte_size(), nullptr, &res));
     ERROR_CHECK("create second cl mem")
-    cl_mem result_buf = clCreateBuffer(ctx, CL_MEM_READ_WRITE, result.byte_size(), nullptr, &res);
+    cl_buffer result_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_WRITE, result.byte_size(), nullptr, &res));
     ERROR_CHECK("create result cl mem")
 
-    res = clEnqueueWriteBuffer(cmd_q, first_buf, CL_TRUE, 0, first.byte_size(), first.data, 0, nullptr, nullptr);
+    res = clEnqueueWriteBuffer(cmd_q.obj, first_buf.obj, CL_TRUE, 0, first.byte_size(), first.data, 0, nullptr, nullptr);
     ERROR_CHECK("enqueue first buffer")
-    res = clEnqueueWriteBuffer(cmd_q, second_buf, CL_TRUE, 0, second.byte_size(), second_t.data, 0, nullptr, nullptr);
+    res = clEnqueueWriteBuffer(cmd_q.obj, second_buf.obj, CL_TRUE, 0, second.byte_size(), second_t.data, 0, nullptr, nullptr);
     ERROR_CHECK("enqueue second buffer")
 
     auto casted_first_rows = static_cast<cl_uint>(first.rows);
     auto casted_first_cols = static_cast<cl_uint>(first.cols);
     auto casted_second_cols = static_cast<cl_uint>(second.cols);
 
-    res = clSetKernelArg(kernel, 0, sizeof(cl_mem), &first_buf);
-    res |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &second_buf);
-    res |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &result_buf);
-    res |= clSetKernelArg(kernel, 3, sizeof(cl_uint), &casted_first_rows);
-    res |= clSetKernelArg(kernel, 4, sizeof(cl_uint), &casted_first_cols);
-    res |= clSetKernelArg(kernel, 5, sizeof(cl_uint), &casted_second_cols);
-    ERROR_CHECK("set kernel args")
+    res = clSetKernelArg(kernel.obj, 0, sizeof(cl_mem), &first_buf);
+    res |= clSetKernelArg(kernel.obj, 1, sizeof(cl_mem), &second_buf);
+    res |= clSetKernelArg(kernel.obj, 2, sizeof(cl_mem), &result_buf);
+    res |= clSetKernelArg(kernel.obj, 3, sizeof(cl_uint), &casted_first_rows);
+    res |= clSetKernelArg(kernel.obj, 4, sizeof(cl_uint), &casted_first_cols);
+    res |= clSetKernelArg(kernel.obj, 5, sizeof(cl_uint), &casted_second_cols);
+    ERROR_CHECK("set kernel.obj args")
 
     size_t global_work[WORK_DIM] = {first.rows, second.cols / cl_util::PER_THREAD};
     size_t local_work[WORK_DIM]  = {cl_util::MATRIX_LOC_WORK, cl_util::MATRIX_LOC_WORK / cl_util::PER_THREAD};
 
     cl_event event = nullptr;
-    res = clEnqueueNDRangeKernel(cmd_q, kernel, WORK_DIM, nullptr, global_work, local_work, 0, nullptr, &event);
+    res = clEnqueueNDRangeKernel(cmd_q.obj, kernel.obj, WORK_DIM, nullptr, global_work, local_work, 0, nullptr, &event);
     ERROR_CHECK("enqueue kernel")
 
     std::cout << "Waiting for ending of computation" << std::endl;
 
     clWaitForEvents(1, &event);
-    clFinish(cmd_q);
+    clFinish(cmd_q.obj);
 
     cl_ulong time_start = 0;
     cl_ulong time_end = 0;
@@ -161,7 +167,7 @@ int main() {
     double time = time_end - time_start;
     std::cout << "Time spent in opencl computation: " << std::fixed << std::setprecision(6) << time / 1e6 << " ms" << std::endl;
 
-    res = clEnqueueReadBuffer(cmd_q, result_buf, CL_TRUE, 0, result.byte_size(), result.data, 0, nullptr, nullptr);
+    res = clEnqueueReadBuffer(cmd_q.obj, result_buf.obj, CL_TRUE, 0, result.byte_size(), result.data, 0, nullptr, nullptr);
     ERROR_CHECK("read result")
 
     auto check_res = first * second;

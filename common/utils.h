@@ -5,13 +5,13 @@
 #include <iostream>
 #include <algorithm>
 #include <sstream>
+#include <functional>
 
 #include <CL/cl.h>
 
 namespace cl_util {
     static constexpr size_t PER_THREAD = 16;
     static constexpr size_t MATRIX_LOC_WORK = 32;
-
     static constexpr size_t PREFSUM_LOC_WORK = 256;
 
     float rand(float min, float max);
@@ -22,6 +22,30 @@ namespace cl_util {
     std::string get_options_prefsum();
 
     std::pair<std::vector<cl_device_id>, cl_uint> find_best_device(const std::vector<cl_platform_id> &platforms, cl_device_type device_type);
+
+    template <typename T>
+    using releaser = cl_int (*)(T);
+
+    template <typename T, releaser<T> Release>
+    struct cl_raii {
+        T obj;
+
+        explicit cl_raii(T other) {
+            *this = other;
+        }
+
+        cl_raii(cl_raii const&) = delete;
+        cl_raii& operator=(cl_raii const&) = delete;
+
+        cl_raii& operator=(T other) {
+            obj = other;
+            return *this;
+        }
+
+        ~cl_raii() {
+            Release(obj);
+        }
+    };
     } // namespace cl_util
 
 // needs res to be defined and set to an error

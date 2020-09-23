@@ -126,14 +126,14 @@ int main() {
     // std::cout << first.byte_size() << first.data;
     cl_buffer first_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_ONLY, first.byte_size(), nullptr, &res));
     ERROR_CHECK("create first cl mem")
-    cl_buffer second_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_ONLY, second.byte_size(), nullptr, &res));
+    cl_buffer second_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_ONLY, second_t.byte_size(), nullptr, &res));
     ERROR_CHECK("create second cl mem")
     cl_buffer result_buf(clCreateBuffer(ctx.obj, CL_MEM_READ_WRITE, result.byte_size(), nullptr, &res));
     ERROR_CHECK("create result cl mem")
 
-    res = clEnqueueWriteBuffer(cmd_q.obj, first_buf.obj, CL_TRUE, 0, first.byte_size(), first.data, 0, nullptr, nullptr);
+    res = clEnqueueWriteBuffer(cmd_q.obj, first_buf.obj, CL_TRUE, 0, first.byte_size(), first.data.data(), 0, nullptr, nullptr);
     ERROR_CHECK("enqueue first buffer")
-    res = clEnqueueWriteBuffer(cmd_q.obj, second_buf.obj, CL_TRUE, 0, second.byte_size(), second_t.data, 0, nullptr, nullptr);
+    res = clEnqueueWriteBuffer(cmd_q.obj, second_buf.obj, CL_TRUE, 0, second_t.byte_size(), second_t.data.data(), 0, nullptr, nullptr);
     ERROR_CHECK("enqueue second buffer")
 
     auto casted_first_rows = static_cast<cl_uint>(first.rows);
@@ -167,7 +167,7 @@ int main() {
     double time = time_end - time_start;
     std::cout << "Time spent in opencl computation: " << std::fixed << std::setprecision(6) << time / 1e6 << " ms" << std::endl;
 
-    res = clEnqueueReadBuffer(cmd_q.obj, result_buf.obj, CL_TRUE, 0, result.byte_size(), result.data, 0, nullptr, nullptr);
+    res = clEnqueueReadBuffer(cmd_q.obj, result_buf.obj, CL_TRUE, 0, result.byte_size(), result.data.data(), 0, nullptr, nullptr);
     ERROR_CHECK("read result")
 
     auto check_res = first * second;

@@ -12,20 +12,20 @@ namespace cl_util {
     struct matrix {
         matrix(size_t rows, size_t cols);
 
-        void fill_rand(float rand_min, float rand_max) const;
+        void fill_rand(float rand_min, float rand_max);
 
         size_t byte_size() const;
 
         void print() const;
 
-        void clear() const;
+        void clear();
 
         ~matrix();
 
         friend matrix operator*(matrix const &a, matrix const &b);
 
         size_t rows, cols;
-        float *data;
+        std::vector<float> data;
     };
 
     matrix operator*(matrix const& a, matrix const& b);

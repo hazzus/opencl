@@ -24,9 +24,9 @@ size_t matrix::byte_size() const {
 }
 
 matrix::~matrix() {
-  //if (data != nullptr) {
-    // free(data);
-    //delete data;
+  // if (data != nullptr) {
+  // free(data);
+  // delete data;
   //}
 }
 
